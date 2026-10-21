@@ -1,20 +1,30 @@
 name: diag
-on: push
+on:
+  push:
+    paths: ['diag-trigger.txt']
+permissions:
+  contents: write
 jobs:
   d:
     runs-on: ubuntu-latest
     steps:
-      - name: secret shape
+      - uses: actions/checkout@v4
+      - name: probe
         env:
           K: ${{ secrets.PRIVATE_DEPLOY_KEY }}
         run: |
-          echo "len=${#K}"
-          case "$K" in
-            "") echo "EMPTY";;
-            *"BEGIN OPENSSH PRIVATE KEY"*) echo "PRIVATE_OPENSSH";;
-            *"BEGIN RSA PRIVATE KEY"*) echo "PRIVATE_RSA";;
-            "ssh-ed25519"*) echo "PUBLIC_KEY";;
-            *) echo "OTHER";;
-          esac
-          mkdir -p ~/.ssh && printf '%s\n' "$K" > ~/.ssh/k && chmod 600 ~/.ssh/k
-          ssh -i ~/.ssh/k -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -T git@github.com 2>&1 | head -3
+          {
+            echo "len=${#K}"
+            case "$K" in
+              "") echo "kind=EMPTY";;
+              *"BEGIN OPENSSH PRIVATE KEY"*) echo "kind=PRIVATE_OPENSSH";;
+              *"BEGIN RSA PRIVATE KEY"*) echo "kind=PRIVATE_RSA";;
+              "ssh-ed25519"*) echo "kind=PUBLIC";;
+              *) echo "kind=OTHER";;
+            esac
+            mkdir -p ~/.ssh && printf '%s\n' "$K" > ~/.ssh/k && chmod 600 ~/.ssh/k
+            echo "ssh_test:"
+            ssh -i ~/.ssh/k -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -T git@github.com 2>&1 | head -3
+          } > diag-result.txt 2>&1
+          git config user.name diag && git config user.email diag@local
+          git add diag-result.txt && git commit -m "diag result [skip ci]" && git push
