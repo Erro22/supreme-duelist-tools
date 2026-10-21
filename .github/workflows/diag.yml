@@ -16,12 +16,14 @@ jobs:
           {
             echo "ts=$(date -u +%H:%M:%S)"
             echo "len=${#K}"
-            echo "head10=${K:0:10}"
-            case "$K" in
-              *"BEGIN OPENSSH PRIVATE KEY"*) echo "kind=OPENSSH";;
-              *) echo "kind=OTHER";;
-            esac
-            mkdir -p ~/.ssh && printf '%s\n' "$K" > ~/.ssh/k && chmod 600 ~/.ssh/k
+            mkdir -p ~/.ssh
+            if [[ "$K" == -----BEGIN* ]]; then
+              printf '%s\n' "$K" > ~/.ssh/k
+            else
+              printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\n%s\n-----END OPENSSH PRIVATE KEY-----\n' "$K" > ~/.ssh/k
+            fi
+            chmod 600 ~/.ssh/k
+            ssh-keygen -y -f ~/.ssh/k > /dev/null 2>&1 && echo "key_parse=OK" || echo "key_parse=FAIL"
             ssh -i ~/.ssh/k -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -T git@github.com 2>&1 | head -2
           } > diag-result.txt 2>&1
           git config user.name diag && git config user.email diag@local
