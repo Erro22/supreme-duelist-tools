@@ -5,6 +5,10 @@ on:
     inputs:
       threads: {description: "Потоков", default: "4"}
   push:
+    paths-ignore: ['ci-error.txt', 'diag-result.txt', 'diag-trigger.txt']
+
+permissions:
+  contents: write
 
 jobs:
   decompile:
@@ -26,9 +30,8 @@ jobs:
           chmod 600 ~/.ssh/k
           printf 'Host github.com\n  StrictHostKeyChecking no\n' > ~/.ssh/config
           GIT_SSH_COMMAND="ssh -i ~/.ssh/k -o IdentitiesOnly=yes" git clone --depth 1 git@github.com:Erro22/supreme-duelist-re.git data
-          ls -l data/il2cpp data/ghidra_in | head
       - name: Runner info
-        run: nproc && free -m
+        run: nproc && free -m && java -version
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,15 +42,31 @@ jobs:
           echo "URL=$URL"
           curl -L -o /tmp/g.zip "$URL" && unzip -q /tmp/g.zip -d /opt
           echo "GHIDRA=$(find /opt -maxdepth 1 -type d -name 'ghidra_*' | head -1)/support/analyzeHeadless" >> $GITHUB_ENV
+          echo "GHIDRA=$GHIDRA"
       - name: Setup bodies
-        run: GHIDRA_HEADLESS_MAXMEM=12288m "$GHIDRA" "$PWD/proj" Il2Cpp -import "$PWD/data/il2cpp/libil2cpp.so" -noanalysis -scriptPath "$PWD/tools/ghidra_scripts" -postScript Il2CppSetupBodies.java "$PWD/data/ghidra_in"
+        run: |
+          set -o pipefail
+          GHIDRA_HEADLESS_MAXMEM=12288m "$GHIDRA" "$PWD/proj" Il2Cpp -import "$PWD/data/il2cpp/libil2cpp.so" -noanalysis -scriptPath "$PWD/tools/ghidra_scripts" -postScript Il2CppSetupBodies.java "$PWD/data/ghidra_in" 2>&1 | tee setup.log
       - name: Export bodies
-        run: GHIDRA_HEADLESS_MAXMEM=12288m "$GHIDRA" "$PWD/proj" Il2Cpp -process libil2cpp.so -noanalysis -scriptPath "$PWD/tools/ghidra_scripts" -postScript Il2CppExport.java "$PWD/data/ghidra_in" "$PWD/data/csharp" "${{ github.event.inputs.threads || '4' }}"
+        run: |
+          set -o pipefail
+          GHIDRA_HEADLESS_MAXMEM=12288m "$GHIDRA" "$PWD/proj" Il2Cpp -process libil2cpp.so -noanalysis -scriptPath "$PWD/tools/ghidra_scripts" -postScript Il2CppExport.java "$PWD/data/ghidra_in" "$PWD/data/csharp" "${{ github.event.inputs.threads || '4' }}" 2>&1 | tee export.log
       - name: Beautify
+        if: success()
         run: python3 tools/beautify.py data/csharp data/csharp_pretty || true
+      - name: Report failure
+        if: failure()
+        run: |
+          { echo "## setup"; tail -100 setup.log 2>/dev/null; echo "## export"; tail -60 export.log 2>/dev/null; } > ci-error.txt
+          git config user.name ci && git config user.email ci@local
+          git add ci-error.txt && git commit -m "ci error" || true
+          git push || true
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: csharp-bodies
+          name: logs-and-bodies
           path: |
+            setup.log
+            export.log
             data/csharp/
-            data/csharp_pretty/
+          if-no-files-found: ignore
