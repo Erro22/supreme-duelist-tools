@@ -1,0 +1,48 @@
+name: il2cpp-decompile
+
+on:
+  workflow_dispatch:
+    inputs:
+      threads: {description: "Потоков декомпиляции", default: "4"}
+  push:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      DATA_REPO: Erro22/supreme-duelist-re
+      IL2CPP_TIMEOUT: "15"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tools
+      - name: Checkout data (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DATA_REPO }}
+          ssh-key: ${{ secrets.PRIVATE_DEPLOY_KEY }}
+          path: data
+      - name: Runner info
+        run: nproc && free -m
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Ghidra
+        run: |
+          URL=$(curl -s https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | python3 -c "import sys,json;d=json.load(sys.stdin);print([a['browser_download_url'] for a in d['assets'] if a['name'].endswith('.zip')][0])")
+          curl -L -o /tmp/g.zip "$URL" && unzip -q /tmp/g.zip -d /opt
+          echo "GHIDRA=$(find /opt -maxdepth 1 -type d -name 'ghidra_*' | head -1)/support/analyzeHeadless" >> $GITHUB_ENV
+      - name: Setup bodies
+        run: GHIDRA_HEADLESS_MAXMEM=12288m "$GHIDRA" "$PWD/proj" Il2Cpp -import "$PWD/data/il2cpp/libil2cpp.so" -noanalysis -scriptPath "$PWD/tools/ghidra_scripts" -postScript Il2CppSetupBodies.java "$PWD/data/ghidra_in"
+      - name: Export bodies
+        run: GHIDRA_HEADLESS_MAXMEM=12288m "$GHIDRA" "$PWD/proj" Il2Cpp -process libil2cpp.so -noanalysis -scriptPath "$PWD/tools/ghidra_scripts" -postScript Il2CppExport.java "$PWD/data/ghidra_in" "$PWD/data/csharp" "${{ github.event.inputs.threads || '4' }}"
+      - name: Beautify
+        run: python3 tools/beautify.py data/csharp data/csharp_pretty || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csharp-bodies
+          path: |
+            data/csharp/
+            data/csharp_pretty/

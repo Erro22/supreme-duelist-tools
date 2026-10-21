@@ -1,0 +1,12 @@
+*.apk
+*.so
+global-metadata.dat
+il2cpp/
+dump/
+src/
+csharp/
+csharp_pretty/
+cs_skeletons/
+ghidra_in/
+logs/
+proj/
