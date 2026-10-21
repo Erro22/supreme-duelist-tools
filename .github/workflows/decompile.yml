@@ -3,7 +3,7 @@ name: il2cpp-decompile
 on:
   workflow_dispatch:
     inputs:
-      threads: {description: "Потоков декомпиляции", default: "4"}
+      threads: {description: "Потоков", default: "4"}
   push:
 
 jobs:
@@ -11,18 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
-      DATA_REPO: Erro22/supreme-duelist-re
       IL2CPP_TIMEOUT: "15"
     steps:
       - uses: actions/checkout@v4
         with:
           path: tools
-      - name: Checkout data (private repo)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.DATA_REPO }}
-          ssh-key: ${{ secrets.PRIVATE_DEPLOY_KEY }}
-          path: data
+      - name: Checkout data (private)
+        env:
+          K: ${{ secrets.PRIVATE_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          if [[ "$K" == -----BEGIN* ]]; then printf '%s\n' "$K" > ~/.ssh/k
+          else printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\n%s\n-----END OPENSSH PRIVATE KEY-----\n' "$K" > ~/.ssh/k; fi
+          chmod 600 ~/.ssh/k
+          printf 'Host github.com\n  StrictHostKeyChecking no\n' > ~/.ssh/config
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/k -o IdentitiesOnly=yes" git clone --depth 1 git@github.com:Erro22/supreme-duelist-re.git data
+          ls -l data/il2cpp data/ghidra_in | head
       - name: Runner info
         run: nproc && free -m
       - uses: actions/setup-java@v4
@@ -32,6 +36,7 @@ jobs:
       - name: Ghidra
         run: |
           URL=$(curl -s https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | python3 -c "import sys,json;d=json.load(sys.stdin);print([a['browser_download_url'] for a in d['assets'] if a['name'].endswith('.zip')][0])")
+          echo "URL=$URL"
           curl -L -o /tmp/g.zip "$URL" && unzip -q /tmp/g.zip -d /opt
           echo "GHIDRA=$(find /opt -maxdepth 1 -type d -name 'ghidra_*' | head -1)/support/analyzeHeadless" >> $GITHUB_ENV
       - name: Setup bodies
